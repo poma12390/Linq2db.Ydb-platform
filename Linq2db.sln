@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Linq2db.Ydb", "Linq2db.Ydb\Linq2db.Ydb.csproj", "{319CF4A6-7745-4C9B-8AC3-14EB412A916D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "test", "test\test.csproj", "{0CA4F5E3-7ABC-4F68-88EF-E0F5BB094918}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{319CF4A6-7745-4C9B-8AC3-14EB412A916D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{319CF4A6-7745-4C9B-8AC3-14EB412A916D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{319CF4A6-7745-4C9B-8AC3-14EB412A916D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{319CF4A6-7745-4C9B-8AC3-14EB412A916D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0CA4F5E3-7ABC-4F68-88EF-E0F5BB094918}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0CA4F5E3-7ABC-4F68-88EF-E0F5BB094918}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0CA4F5E3-7ABC-4F68-88EF-E0F5BB094918}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0CA4F5E3-7ABC-4F68-88EF-E0F5BB094918}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

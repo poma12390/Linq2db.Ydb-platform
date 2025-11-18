@@ -1,0 +1,113 @@
+############################
+# OS / Editor junk
+############################
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.nfs*
+
+# General
+*.swp
+*.swo
+*.tmp
+*.bak
+
+############################
+# IDEs / Tools
+############################
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Rider / IntelliJ
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# ReSharper
+_ReSharper.*
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# NCrunch
+*.ncrunchsolution
+*.ncrunchproject
+*.ncrunchenvironment
+*.ncrunchconfig
+
+############################
+# .NET build artifacts
+############################
+
+bin/
+obj/
+out/
+[Bb]uild/
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# NuGet packages (if not using global cache only)
+packages/
+*.nupkg
+*.snupkg
+
+# NuGet config secrets
+nuget.config
+NuGet.Config
+
+############################
+# Logs / dumps / cache
+############################
+
+*.log
+logs/
+log/
+*.pid
+*.dmp
+
+############################
+# YDB / local runtime data
+############################
+
+# Local YDB data directories (adjust if you use others)
+ydb_data/
+ydb-local/
+.ydb/
+
+############################
+# Misc
+############################
+
+# Rider / VS solution-wide caches
+.cache/
+.idea_modules/
+
+# Generated files
+_generated/
+gen/
+generated/
+
+# Backup files
+*.orig
+*.rej
