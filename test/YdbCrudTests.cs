@@ -59,7 +59,7 @@ namespace Tests.Ydb
         /// </summary>
         private static string GenerateSimpleEntityTableName()
         {
-            return $"simple_entity_{Guid.NewGuid():N}";
+            return $"temp_table_{Guid.NewGuid():N}";
         }
 
         /// <summary>
