@@ -1,0 +1,87 @@
+name: build-and-test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    # Эти переменные читаются в YdbCrudTests через Environment.GetEnvironmentVariable(...)
+    # Host/Port/DbPath/UseTls/TlsPort — см. тесты в проекте test :contentReference[oaicite:0]{index=0}
+    env:
+      YDB_HOST: localhost
+      YDB_PORT: "2136"
+      YDB_DB: /local
+      YDB_USE_TLS: "false"
+      YDB_TLS_PORT: "2135"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build YDB Docker image
+        run: |
+          docker build -t local-ydb -f .github/Dockerfile .
+
+      - name: Run YDB container
+        run: |
+          docker run -d \
+            --name ydb \
+            -p 2136:2136 \
+            -p 2135:2135 \
+            local-ydb
+
+      - name: Wait for YDB to become healthy
+        run: |
+          echo "Waiting for YDB healthcheck..."
+          for i in $(seq 1 60); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' ydb 2>/dev/null || echo "starting")
+            echo "[$i] status = $status"
+            if [ "$status" = "healthy" ]; then
+              echo "YDB is healthy"
+              break
+            fi
+            sleep 2
+          done
+
+          final_status=$(docker inspect --format='{{.State.Health.Status}}' ydb 2>/dev/null || echo "unknown")
+          if [ "$final_status" != "healthy" ]; then
+            echo "YDB is NOT healthy, final status = $final_status"
+            echo "----- docker logs ydb -----"
+            docker logs ydb || true
+            exit 1
+          fi
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore NuGet packages
+        run: dotnet restore
+
+      - name: Build solution
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test test/test.csproj --configuration Release --no-build
+
+      - name: Show YDB logs on failure
+        if: failure()
+        run: |
+          echo "Tests failed, printing YDB container logs..."
+          docker logs ydb || true
+
+      - name: Stop and remove YDB container
+        if: always()
+        run: |
+          docker stop ydb || true
+          docker rm ydb || true
