@@ -4,6 +4,7 @@ using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
 using NUnit.Framework;
+using Ydb.Sdk.Ado;
 
 namespace Tests.Ydb
 {
@@ -36,22 +37,33 @@ namespace Tests.Ydb
 
         // ===================== UTILITIES =====================
 
-        private const string DefaultConnectionString =
-            "Host=localhost;Port=2136;Database=/local;UseTls=false;DisableDiscovery=true";
+        private static int TryInt(string? s, int d) => int.TryParse(s, out var v) ? v : d;
+        private static bool TryBool(string? s, bool d) => bool.TryParse(s, out var v) ? v : d;
+        
+        private static readonly string Host    = Environment.GetEnvironmentVariable("YDB_HOST")      ?? "localhost";
+        private static readonly int    Port    = TryInt(Environment.GetEnvironmentVariable("YDB_PORT"), 2136);
+        private static readonly string DbPath  = Environment.GetEnvironmentVariable("YDB_DB")        ?? "/local";
+        private static readonly bool   UseTls  = TryBool(Environment.GetEnvironmentVariable("YDB_USE_TLS"), false);
+        private static readonly int    TlsPort = TryInt(Environment.GetEnvironmentVariable("YDB_TLS_PORT"), 2135);
 
         /// <summary>
         /// Creates a DataConnection to YDB using the provider.
         /// The connection string is taken from YDB_CONNECTION_STRING
         /// or the local default is used.
         /// </summary>
-        private static DataConnection CreateYdbConnection()
+        private static async Task<DataConnection> CreateYdbConnection()
         {
-            var fromEnv = Environment.GetEnvironmentVariable("YDB_CONNECTION_STRING");
-            var connectionString = string.IsNullOrWhiteSpace(fromEnv)
-                ? DefaultConnectionString
-                : fromEnv;
-
-            return YdbTools.CreateDataConnection(connectionString);
+            var builder = new YdbConnectionStringBuilder
+            {
+                Host     = Host,
+                Port     = UseTls ? TlsPort : Port,
+                Database = DbPath,
+                UseTls   = UseTls
+            };
+        
+            await using var ydbConnection = new YdbConnection(builder);
+            return YdbTools.CreateDataConnection(ydbConnection);
+        
         }
 
         /// <summary>
@@ -79,7 +91,7 @@ namespace Tests.Ydb
         private static void RunWithTemporarySimpleEntityTable(
             Action<DataConnection, ITable<SimpleEntity>, string> testBody)
         {
-            using var db = CreateYdbConnection();
+            using var db = CreateYdbConnection().Result;
             var tableName = GenerateSimpleEntityTableName();
 
             var table = CreateSimpleEntityTable(db, tableName);
