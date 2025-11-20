@@ -14,8 +14,7 @@ jobs:
   tests:
     runs-on: ubuntu-latest
 
-    # Эти переменные читаются в YdbCrudTests через Environment.GetEnvironmentVariable(...)
-    # Host/Port/DbPath/UseTls/TlsPort — см. тесты в проекте test :contentReference[oaicite:0]{index=0}
+    # For ydbCrudTests
     env:
       YDB_HOST: localhost
       YDB_PORT: "2136"
