@@ -1,10 +1,10 @@
-﻿using System;
-using System.Linq;
-using Linq2db.Ydb;
+﻿using Linq2db.Ydb;
+using Linq2db.Ydb.Internal;
 using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
 using NUnit.Framework;
+using Ydb.Sdk.Ado;
 
 namespace Tests.Ydb
 {
@@ -37,43 +37,73 @@ namespace Tests.Ydb
 
         // ===================== UTILITIES =====================
 
-        private const string DefaultConnectionString =
-            "Host=localhost;Port=2136;Database=/local;UseTls=false;DisableDiscovery=true";
+        private static int TryInt(string? s, int d) => int.TryParse(s, out var v) ? v : d;
+        private static bool TryBool(string? s, bool d) => bool.TryParse(s, out var v) ? v : d;
+        
+        private static readonly string Host    = Environment.GetEnvironmentVariable("YDB_HOST")      ?? "localhost";
+        private static readonly int    Port    = TryInt(Environment.GetEnvironmentVariable("YDB_PORT"), 2136);
+        private static readonly string DbPath  = Environment.GetEnvironmentVariable("YDB_DB")        ?? "/local";
+        private static readonly bool   UseTls  = TryBool(Environment.GetEnvironmentVariable("YDB_USE_TLS"), false);
+        private static readonly int    TlsPort = TryInt(Environment.GetEnvironmentVariable("YDB_TLS_PORT"), 2135);
 
         /// <summary>
         /// Creates a DataConnection to YDB using the provider.
         /// The connection string is taken from YDB_CONNECTION_STRING
         /// or the local default is used.
         /// </summary>
-        private static DataConnection CreateYdbConnection()
+        private static async Task<DataConnection> CreateYdbConnection()
         {
-            var fromEnv = Environment.GetEnvironmentVariable("YDB_CONNECTION_STRING");
-            var connectionString = string.IsNullOrWhiteSpace(fromEnv)
-                ? DefaultConnectionString
-                : fromEnv;
-
-            return YdbTools.CreateDataConnection(connectionString);
+            var builder = new YdbConnectionStringBuilder
+            {
+                Host     = Host,
+                Port     = UseTls ? TlsPort : Port,
+                Database = DbPath,
+                UseTls   = UseTls
+            };
+        
+            await using var ydbConnection = new YdbConnection(builder);
+            return YdbTools.CreateDataConnection(ydbConnection);
+        
         }
 
         /// <summary>
-        /// Creates a real simple_entity table (NOT temporary).
-        /// If the table already exists, tries to drop it.
-        /// Returns ITable for further queries.
+        /// Generates a unique table name for a temporary SimpleEntity table.
         /// </summary>
-        private static ITable<SimpleEntity> CreateSimpleEntityTable(DataConnection db)
+        private static string GenerateSimpleEntityTableName()
         {
+            return $"temp_table_{Guid.NewGuid():N}";
+        }
+
+        /// <summary>
+        /// Creates SimpleEntity table with the given physical name and returns
+        /// ITable bound to that name.
+        /// </summary>
+        private static ITable<SimpleEntity> CreateSimpleEntityTable(DataConnection db, string tableName)
+        {
+            db.CreateTable<SimpleEntity>(tableName);
+            return db.GetTable<SimpleEntity>().TableName(tableName);
+        }
+
+        /// <summary>
+        /// Opens connection, creates temporary table with unique name,
+        /// runs test body and always drops the table in finally.
+        /// </summary>
+        private static void RunWithTemporarySimpleEntityTable(
+            Action<DataConnection, ITable<SimpleEntity>, string> testBody)
+        {
+            using var db = CreateYdbConnection().Result;
+            var tableName = GenerateSimpleEntityTableName();
+
+            var table = CreateSimpleEntityTable(db, tableName);
+
             try
             {
-                db.DropTable<SimpleEntity>();
+                testBody(db, table, tableName);
             }
-            catch
+            finally
             {
-                // ignore if the table does not exist
+                db.DropTable<SimpleEntity>(tableName);
             }
-
-            db.CreateTable<SimpleEntity>();
-
-            return db.GetTable<SimpleEntity>();
         }
 
         // ===================== TESTS =====================
@@ -81,205 +111,184 @@ namespace Tests.Ydb
         [Test]
         public void CanCreateTable()
         {
-            using var db = CreateYdbConnection();
-            var table = CreateSimpleEntityTable(db);
+            RunWithTemporarySimpleEntityTable((db, table, tableName) =>
+            {
+                var count = table.Count();
 
-            var count = table.Count();
-
-            Assert.That(count, Is.EqualTo(0), "Table must be empty right after creation.");
-
-            db.DropTable<SimpleEntity>();
+                Assert.That(count, Is.EqualTo(0), "Table must be empty right after creation.");
+            });
         }
 
         [Test]
         public void CanInsertAndSelect()
         {
-            using var db = CreateYdbConnection();
-            var table = CreateSimpleEntityTable(db);
-
-            var now = DateTime.UtcNow;
-
-            var entity = new SimpleEntity
+            RunWithTemporarySimpleEntityTable((db, table, tableName) =>
             {
-                Id      = 1,
-                IntVal  = 42,
-                DecVal  = 3.14m,
-                StrVal  = "hello",
-                BoolVal = true,
-                DtVal   = now
-            };
+                var now = DateTime.UtcNow;
 
-            Assert.DoesNotThrow(
-                () => db.Insert(entity),
-                "Insert into YDB must not throw."
-            );
+                table.Insert(() => new SimpleEntity
+                {
+                    Id      = 1,
+                    IntVal  = 42,
+                    DecVal  = 3.14m,
+                    StrVal  = "hello",
+                    BoolVal = true,
+                    DtVal   = now
+                });
 
-            var loaded = table.SingleOrDefault(e => e.Id == 1);
+                var loaded = table.SingleOrDefault(e => e.Id == 1);
 
-            Assert.That(loaded, Is.Not.Null, "Row with Id = 1 must exist.");
+                Assert.That(loaded, Is.Not.Null, "Row with Id = 1 must exist.");
 
-            Assert.Multiple(() =>
-            {
-                Assert.That(loaded!.IntVal,  Is.EqualTo(42));
-                Assert.That(loaded.DecVal,   Is.EqualTo(3.14m));
-                Assert.That(loaded.StrVal,   Is.EqualTo("hello"));
-                Assert.That(loaded.BoolVal,  Is.True);
-                Assert.That(
-                    loaded.DtVal,
-                    Is.EqualTo(now).Within(TimeSpan.FromSeconds(1)),
-                    "DtVal must match the inserted value within 1 second."
-                );
+                Assert.Multiple(() =>
+                {
+                    Assert.That(loaded!.IntVal, Is.EqualTo(42));
+                    Assert.That(loaded.DecVal, Is.EqualTo(3.14m));
+                    Assert.That(loaded.StrVal, Is.EqualTo("hello"));
+                    Assert.That(loaded.BoolVal, Is.True);
+                    Assert.That(
+                        loaded.DtVal,
+                        Is.EqualTo(now).Within(TimeSpan.FromSeconds(1)),
+                        "DtVal must match the inserted value within 1 second.");
+                });
             });
-
-            db.DropTable<SimpleEntity>();
         }
 
         [Test]
         public void CanUpdateByPrimaryKey()
         {
-            using var db = CreateYdbConnection();
-            var table = CreateSimpleEntityTable(db);
-
-            var now = DateTime.UtcNow;
-
-            var entity = new SimpleEntity
+            RunWithTemporarySimpleEntityTable((db, table, tableName) =>
             {
-                Id      = 10,
-                IntVal  = 1,
-                DecVal  = 1.23m,
-                StrVal  = "old",
-                BoolVal = false,
-                DtVal   = now
-            };
+                var now = DateTime.UtcNow;
 
-            db.Insert(entity);
+                table.Insert(() => new SimpleEntity
+                {
+                    Id      = 10,
+                    IntVal  = 1,
+                    DecVal  = 1.23m,
+                    StrVal  = "old",
+                    BoolVal = false,
+                    DtVal   = now
+                });
 
-            var updated = new SimpleEntity
-            {
-                Id      = 10,
-                IntVal  = 99,
-                DecVal  = 9.99m,
-                StrVal  = "updated",
-                BoolVal = true,
-                DtVal   = now.AddDays(1)
-            };
+                var newDt = now.AddDays(1);
 
-            Assert.DoesNotThrow(
-                () => db.Update(updated),
-                "Update must not throw."
-            );
+                table
+                    .Where(e => e.Id == 10)
+                    .Set(e => e.IntVal,  99)
+                    .Set(e => e.DecVal,  9.99m)
+                    .Set(e => e.StrVal,  "updated")
+                    .Set(e => e.BoolVal, true)
+                    .Set(e => e.DtVal,   newDt)
+                    .Update();
 
-            var loaded = table.Single(e => e.Id == 10);
+                var loaded = table.Single(e => e.Id == 10);
 
-            Assert.Multiple(() =>
-            {
-                Assert.That(loaded.IntVal,  Is.EqualTo(99));
-                Assert.That(loaded.DecVal,  Is.EqualTo(9.99m));
-                Assert.That(loaded.StrVal,  Is.EqualTo("updated"));
-                Assert.That(loaded.BoolVal, Is.True);
-                Assert.That(
-                    loaded.DtVal,
-                    Is.EqualTo(now.AddDays(1)).Within(TimeSpan.FromSeconds(1)),
-                    "DtVal must be updated and within 1 second tolerance."
-                );
+                Assert.Multiple(() =>
+                {
+                    Assert.That(loaded.IntVal, Is.EqualTo(99));
+                    Assert.That(loaded.DecVal, Is.EqualTo(9.99m));
+                    Assert.That(loaded.StrVal, Is.EqualTo("updated"));
+                    Assert.That(loaded.BoolVal, Is.True);
+                    Assert.That(
+                        loaded.DtVal,
+                        Is.EqualTo(newDt).Within(TimeSpan.FromSeconds(1)),
+                        "DtVal must be updated and within 1 second tolerance.");
+                });
             });
-
-            db.DropTable<SimpleEntity>();
         }
 
         [Test]
         public void CanDeleteByPrimaryKey()
         {
-            using var db = CreateYdbConnection();
-            var table = CreateSimpleEntityTable(db);
-
-            var now = DateTime.UtcNow;
-
-            var entity = new SimpleEntity
+            RunWithTemporarySimpleEntityTable((db, table, tableName) =>
             {
-                Id      = 100,
-                IntVal  = 7,
-                DecVal  = 0.5m,
-                StrVal  = "to_delete",
-                BoolVal = false,
-                DtVal   = now
-            };
+                var now = DateTime.UtcNow;
 
-            db.Insert(entity);
+                table.Insert(() => new SimpleEntity
+                {
+                    Id      = 100,
+                    IntVal  = 7,
+                    DecVal  = 0.5m,
+                    StrVal  = "to_delete",
+                    BoolVal = false,
+                    DtVal   = now
+                });
 
-            var before = table.Count();
-            Assert.That(table.Any(e => e.Id == 100), Is.True, "Row must exist before delete.");
+                var before = table.Count();
+                Assert.That(table.Any(e => e.Id == 100), Is.True, "Row must exist before delete.");
 
-            db.Delete(new SimpleEntity { Id = 100 });
+                table.Delete(e => e.Id == 100);
 
-            var after = table.Count();
+                var after = table.Count();
 
-            Assert.Multiple(() =>
-            {
-                Assert.That(after, Is.EqualTo(before - 1), "Row count must decrease by 1 after delete.");
-                Assert.That(table.Any(e => e.Id == 100), Is.False, "Row with Id = 100 must not exist after delete.");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(after, Is.EqualTo(before - 1), "Row count must decrease by 1 after delete.");
+                    Assert.That(table.Any(e => e.Id == 100), Is.False, "Row with Id = 100 must not exist after delete.");
+                });
             });
-
-            db.DropTable<SimpleEntity>();
         }
 
         [Test]
         public void BulkCopy_Insert_Update_Delete_ManyRows()
         {
-            using var db = CreateYdbConnection();
-            var table = CreateSimpleEntityTable(db);
-
-            const int batchSize = 5_000;
-
-            var now = DateTime.UtcNow;
-
-            var data = Enumerable
-                .Range(0, batchSize)
-                .Select(i => new SimpleEntity
-                {
-                    Id      = i,
-                    IntVal  = i,
-                    DecVal  = 0m,
-                    StrVal  = "Name " + i.ToString(),
-                    BoolVal = (i % 2) == 0,
-                    DtVal   = now
-                });
-
-            var copyResult = db.BulkCopy(data);
-
-            Assert.That(copyResult.RowsCopied, Is.EqualTo(batchSize), "BulkCopy must insert all rows.");
-
-            var ids = Enumerable.Range(0, batchSize).ToArray();
-
-            var insertedCount = table.Count(t => ids.Contains(t.Id));
-            Assert.That(insertedCount, Is.EqualTo(batchSize), "All inserted Id values must be present in the table.");
-
-            const decimal newDec  = 1.23m;
-            const string  newStr  = "updated";
-            const bool    newBool = true;
-
-            table
-                .Where(t => ids.Contains(t.Id))
-                .Set(t => t.DecVal,  _ => newDec)
-                .Set(t => t.StrVal,  _ => newStr)
-                .Set(t => t.BoolVal, _ => newBool)
-                .Update();
-
-            var mismatchCount = table.Count(t =>
-                ids.Contains(t.Id) &&
-                (t.DecVal != newDec || t.StrVal != newStr || t.BoolVal != newBool));
-
-            Assert.That(mismatchCount, Is.EqualTo(0), "All rows must have updated values after UPDATE.");
-
-            table.Delete(t => ids.Contains(t.Id));
-            var left = table.Count();
-
-            Assert.Multiple(() =>
+            RunWithTemporarySimpleEntityTable((db, table, tableName) =>
             {
+                const int batchSize = 5_000;
+
+                var now = DateTime.UtcNow;
+
+                var data = Enumerable
+                    .Range(0, batchSize)
+                    .Select(i => new SimpleEntity
+                    {
+                        Id      = i,
+                        IntVal  = i,
+                        DecVal  = 0m,
+                        StrVal  = "Name " + i,
+                        BoolVal = (i % 2) == 0,
+                        DtVal   = now
+                    });
+                
+                var provider   = (YdbDataProvider)db.DataProvider;
+                var bulkHelper = new YdbBulkCopy(provider);
+
+                var copyResult = bulkHelper.BulkCopy(
+                    BulkCopyType.ProviderSpecific,
+                    table,
+                    db.Options,
+                    data);
+
+                Assert.That(copyResult.RowsCopied, Is.EqualTo(batchSize), "BulkCopy must insert all rows.");
+
+                var ids = Enumerable.Range(0, batchSize).ToArray();
+
+                var insertedCount = table.Count(t => ids.Contains(t.Id));
+                Assert.That(insertedCount, Is.EqualTo(batchSize), "All inserted Id values must be present in the table.");
+
+                const decimal newDec  = 1.23m;
+                const string  newStr  = "updated";
+                const bool    newBool = true;
+
+                table
+                    .Where(t => ids.Contains(t.Id))
+                    .Set(t => t.DecVal,  _ => newDec)
+                    .Set(t => t.StrVal,  _ => newStr)
+                    .Set(t => t.BoolVal, _ => newBool)
+                    .Update();
+
+                var mismatchCount = table.Count(t =>
+                    ids.Contains(t.Id) &&
+                    (t.DecVal != newDec || t.StrVal != newStr || t.BoolVal != newBool));
+
+                Assert.That(mismatchCount, Is.EqualTo(0), "All rows must have updated values after UPDATE.");
+
+                table.Delete(t => ids.Contains(t.Id));
+                var left = table.Count();
+
                 Assert.That(left, Is.EqualTo(0), "Table must be empty after bulk delete.");
             });
-
-            db.DropTable<SimpleEntity>();
         }
     }
 }
