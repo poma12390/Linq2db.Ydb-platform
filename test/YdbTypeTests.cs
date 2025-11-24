@@ -2,9 +2,8 @@
 using LinqToDB;
 using LinqToDB.Data;
 using NUnit.Framework;
-using test;
 
-namespace Tests.Ydb;
+namespace test;
 
 /// <summary>
 /// Small set of test data, similar to the original TestData.
