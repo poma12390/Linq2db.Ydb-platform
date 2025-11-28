@@ -47,4 +47,4 @@ jobs:
           done
 
       - name: Run tests
-        run: dotnet test ./tests --logger "GitHubActions;report-warnings=false"
+        run: dotnet test --logger "GitHubActions;report-warnings=false"

@@ -401,8 +401,8 @@ public class YdbDataProvider : DynamicDataProviderBase<YdbProviderAdapter>
 				else if (value is int i     ) value = (decimal)i;
 				else if (value is ulong ul  ) value = (decimal)ul;
 				else if (value is long l    ) value = (decimal)l;
-				else if (value is float f   ) value = checked((decimal)f);
-				else if (value is double dbl) value = checked((decimal)dbl);
+				else if (value is float f   ) value = (decimal)f;
+				else if (value is double dbl) value = (decimal)dbl;
 				else if (value is string str)
 					value = Adapter.MakeDecimalFromString(str, dataType.Precision ?? YdbMappingSchema.DEFAULT_DECIMAL_PRECISION, dataType.Scale ?? YdbMappingSchema.DEFAULT_DECIMAL_SCALE);
 			}
@@ -417,24 +417,87 @@ public class YdbDataProvider : DynamicDataProviderBase<YdbProviderAdapter>
 	{
 		YdbProviderAdapter.YdbDbType? type = null;
 
-		switch (dataType.DataType)
+		// 1. priority for DbType
+		//    [Column("happened_at", DbType = "Timestamp64")]
+		var dbType = dataType.DbType;
+		if (!string.IsNullOrEmpty(dbType))
 		{
-			case DataType.Date: type = YdbProviderAdapter.YdbDbType.Date; break;
-			case DataType.DateTime: type = YdbProviderAdapter.YdbDbType.DateTime; break;
-			case DataType.DateTime2: type = YdbProviderAdapter.YdbDbType.Timestamp; break;
-			case DataType.Json: type = YdbProviderAdapter.YdbDbType.Json; break;
-			case DataType.BinaryJson: type = YdbProviderAdapter.YdbDbType.JsonDocument; break;
-			case DataType.Interval: type = YdbProviderAdapter.YdbDbType.Interval; break;
+			var s = dbType.Trim();
 
-			case DataType.Decimal:
+			bool Eq(string a, string b) =>
+				string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+			if (Eq(s, "Date32"))
+				type = YdbProviderAdapter.YdbDbType.Date32;
+			else if (Eq(s, "Datetime64"))
+				type = YdbProviderAdapter.YdbDbType.Datetime64;
+			else if (Eq(s, "Timestamp64"))
+				type = YdbProviderAdapter.YdbDbType.Timestamp64;
+			else if (Eq(s, "Interval64"))
+				type = YdbProviderAdapter.YdbDbType.Interval64;
+			else if (Eq(s, "Date"))
+				type = YdbProviderAdapter.YdbDbType.Date;
+			else if (Eq(s, "Datetime") || Eq(s, "DateTime"))
+				type = YdbProviderAdapter.YdbDbType.DateTime;
+			else if (Eq(s, "Timestamp"))
+				type = YdbProviderAdapter.YdbDbType.Timestamp;
+			else if (Eq(s, "Interval"))
+				type = YdbProviderAdapter.YdbDbType.Interval;
+			else if (Eq(s, "Json"))
+				type = YdbProviderAdapter.YdbDbType.Json;
+			else if (Eq(s, "JsonDocument"))
+				type = YdbProviderAdapter.YdbDbType.JsonDocument;
+		}
+
+		if (type == null)
+		{
+			switch (dataType.DataType)
+			{
+				case DataType.Date:
+					type = YdbProviderAdapter.YdbDbType.Date;
+					break;
+
+				case DataType.DateTime:
+					type = YdbProviderAdapter.YdbDbType.DateTime;
+					break;
+
+				case DataType.DateTime2:
+					type = YdbProviderAdapter.YdbDbType.Timestamp;
+					break;
+
+				case DataType.Json:
+					type = YdbProviderAdapter.YdbDbType.Json;
+					break;
+
+				case DataType.BinaryJson:
+					type = YdbProviderAdapter.YdbDbType.JsonDocument;
+					break;
+
+				case DataType.Interval:
+					type = YdbProviderAdapter.YdbDbType.Interval;
+					break;
+
+				case DataType.Decimal:
+				{
+					if (dataType.Precision != null)
+						parameter.Precision = (byte)dataType.Precision.Value;
+
+					if (dataType.Scale != null)
+						parameter.Scale = (byte)dataType.Scale.Value;
+
+					break;
+				}
+			}
+		}
+		else
+		{
+			if (dataType.DataType == DataType.Decimal)
 			{
 				if (dataType.Precision != null)
 					parameter.Precision = (byte)dataType.Precision.Value;
 
 				if (dataType.Scale != null)
 					parameter.Scale = (byte)dataType.Scale.Value;
-
-				break;
 			}
 		}
 
